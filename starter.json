@@ -1,0 +1,21 @@
+{
+  "name": "Voxel Builders",
+  "genre": "sandbox",
+  "dim": "3D",
+  "mode": "Co-op",
+  "players": "1–16",
+  "hook": "Build a block world together. It remembers.",
+  "how": "Walk around a little island and place and break blocks in eight colors. Bots build trees and houses beside you, and the world is still there the next time you come back.",
+  "controls": "WASD and mouse, click to place, right-click to break, 1 to 8 for colors, or the on-screen stick and buttons",
+  "uses": [
+    ["World memory", "The world is remembered by the players who built it: whoever comes back first brings it back for everyone."],
+    ["Host-run rules", "The host's browser checks every block placed or broken; if it leaves, the next player takes over."],
+    ["Bots", "Bots wander the island and build trees, houses and towers until enough people join."],
+    ["Live sync", "Every block and every builder shows up for everyone at once."]
+  ],
+  "ideas": [
+    "Add a day and night cycle",
+    "Add doors and glass blocks",
+    "Add a creative mode where you can fly"
+  ]
+}

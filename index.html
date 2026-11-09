@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voxel Builders</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #9fd8ff; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 1px 3px #000b; }
+  #net { top: max(10px, env(safe-area-inset-top)); left: 14px; font-size: 13px; font-weight: 600; opacity: .9; }
+  #saved { top: calc(max(10px, env(safe-area-inset-top)) + 20px); left: 14px; font-size: 12px; opacity: 0; transition: opacity .5s; }
+  #saved.on { opacity: .85; }
+  #cross { left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+  #cross::before, #cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+  #cross::before { left: 10px; top: 2px; width: 2px; height: 18px; }
+  #cross::after { top: 10px; left: 2px; height: 2px; width: 18px; }
+  #hint { top: 30%; left: 16px; right: 16px; text-align: center; font-size: 17px; font-weight: 700; opacity: 0; transition: opacity .6s; }
+  #hint.on, #toast.on { opacity: 1; }
+  #toast { top: 20%; left: 16px; right: 16px; text-align: center; font-size: 18px; font-weight: 800; color: #ffe07a; opacity: 0; transition: opacity .4s; }
+  #bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom)); display: flex; padding: 3px; border-radius: 14px; background: #0006; }
+  #bar button { width: 46px; height: 46px; border: 0; padding: 4px; background: none; touch-action: none; cursor: pointer; }
+  #bar button i { display: block; width: 100%; height: 100%; border-radius: 8px; border: 3px solid #0004; box-sizing: border-box; transition: transform .12s; }
+  #bar button.on i { border-color: #fff; transform: translateY(-4px); }
+  .touch #bar { top: max(8px, env(safe-area-inset-top)); bottom: auto; }
+  .touch #net { top: calc(max(8px, env(safe-area-inset-top)) + 60px); left: 50%; transform: translateX(-50%); white-space: nowrap; }
+  .touch #saved { top: calc(max(8px, env(safe-area-inset-top)) + 80px); left: 50%; transform: translateX(-50%); }
+  .pads { display: none; }
+  .touch .pads { display: block; }
+  #stick { position: fixed; left: max(20px, env(safe-area-inset-left)); bottom: max(24px, env(safe-area-inset-bottom)); width: 128px; height: 128px; border-radius: 50%;
+           background: #ffffff22; border: 2px solid #ffffff55; touch-action: none; }
+  #knob { position: absolute; left: 39px; top: 39px; width: 50px; height: 50px; border-radius: 50%; background: #ffffffaa; pointer-events: none; }
+  #acts { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 64px 80px; gap: 10px; align-items: end; }
+  #acts button { border-radius: 50%; border: 2px solid #ffffff88; color: #fff; font: 800 13px system-ui, sans-serif; touch-action: none; text-shadow: 0 1px 2px #0008; }
+  #bJump { grid-column: 2; width: 64px; height: 64px; justify-self: center; background: #00000033; }
+  #bBreak { width: 64px; height: 64px; background: #d9553f99; }
+  #bPlace { width: 80px; height: 80px; background: #4cc38a99; }
+  #acts button:active { filter: brightness(1.4); }
+  #card { position: fixed; inset: 0; display: grid; place-items: center; background: #0b142a88; }
+  #card[hidden] { display: none; }
+  .card { width: min(360px, 88vw); padding: 22px; border-radius: 16px; background: #16213ef2; border: 1px solid #ffffff2a; text-align: center; }
+  .card h1 { margin: 0 0 6px; font-size: 28px; }
+  .card p { margin: 8px 0; font-size: 14px; opacity: .9; }
+  .card .keys { font-size: 13px; opacity: .75; }
+  button.go { width: 100%; min-height: 48px; margin-top: 10px; border: 0; border-radius: 12px; background: #4cc38a; color: #08130d; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+  .attract .hud, .attract #bar, .attract .pads, .attract #card { display: none !important; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+<script type="importmap">{ "imports": { "three": "./libs/three.module.min.js" } }</script>
+</head>
+<body>
+<div class="hud" id="net">Connecting…</div>
+<div class="hud" id="saved">✓ World saved</div>
+<div class="hud" id="cross"></div>
+<div class="hud" id="hint"></div>
+<div class="hud" id="toast"></div>
+<div id="bar"></div>
+<div class="pads"><div id="stick"><div id="knob"></div></div>
+  <div id="acts"><span></span><button id="bJump">JUMP</button><button id="bBreak">BREAK</button><button id="bPlace">PLACE</button></div></div>
+<div id="card"><div class="card">
+  <h1>Voxel Builders</h1>
+  <p>Build a block world together. It remembers: what you build is still here the next time anyone visits.</p>
+  <p class="keys" id="keys"></p>
+  <button class="go" id="play">Play</button>
+  <p class="keys" id="who"></p>
+</div></div>
+<script type="module">
+/* ═══ VOXEL BUILDERS · a Multiplayer Agent starter ═══════════════════════════════════
+ * Build a block world together. Co-op, 1–16 players; bots build beside you.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ island size, speeds, bots, block colors
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   WORLD MEMORY .. how the world survives the room emptying (same code in every starter)
+ *   BLOCKS ........ how blocks are packed into shared fields, and what everyone sees
+ *   WORLD (HOST) .. checking place/break, writing the blocks, bots and their blueprints
+ *   SCENE ......... island, block mesh, effects, the builders' bodies
+ *   ME ............ walking, jumping, aiming, placing and breaking
+ *   HUD ........... status line, hotbar, hints, the start card
+ *   INPUT ......... keyboard, mouse (pointer lock), touch stick and buttons
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - Each player writes its OWN entity: `p` (one JSON field: position, facing) about 10
+ *     times a second, `hb` (heartbeat) once a second, and `n`/`s` (name, body color) once.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last
+ *     3s), worked out every frame. Only the host writes the shared fields: `r0`…`r8`
+ *     (the blocks, one field per 16×16 region, 3 characters per block), `rev` (how many
+ *     changes people have made) and `bots`. A new host adopts all of it from state.
+ *   - Everyone else sends intents: "place" {x, y, z, c} and "break" {x, y, z}. The host
+ *     checks them and writes the region. Your own block shows at once (a "pending" copy)
+ *     until the host's write comes back.
+ *   - The world outlives the room through WORLD MEMORY (see that section).
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ */
+import * as THREE from "three";
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  size: 48,             // the island is size × size blocks (a multiple of `region`)
+  height: 16,           // blocks stack this high. height × region × region must stay ≤ 4096
+  region: 16,           // blocks are stored per region × region columns, one shared field each
+  regionCap: 640,       // most blocks in one region (3 characters each, under the 2048 limit)
+  reach: 7,             // how far away you can place and break, in blocks
+  walk: 5.2,            // walking speed, blocks per second
+  jump: 8.6,            // jump speed
+  gravity: 26,
+  look: 0.0024,         // mouse look, radians per pixel
+  touchLook: 0.0065,    // touch drag look, radians per pixel
+  seats: 4,             // bots fill the island up to this many builders
+  botBuildMs: 320,      // ms between a bot's blocks
+  botBlockLimit: 1800,  // bots stop starting new builds once the world has this many blocks
+  saveNs: "voxel-world",// player-save namespace for world memory
+  saveEvery: 10000,     // ms between world-memory saves
+  attractSeed: 21,       // which village the ?attract preview builds
+};
+// Block colors, by index (0 is air). Index = the hotbar key.
+const COLORS = [null, "#62c443", "#2f8f45", "#a36b3c", "#9ca6b0", "#d9553f", "#f4cf4a", "#3f8fe0", "#f5f3ee"];
+const [, GRASS, LEAF, WOOD, STONE, BRICK, GOLD, BLUE, SNOW] = COLORS.map((_, i) => i);
+const SKINS = ["#ff5a5f", "#3fa7ff", "#ffc93c", "#5ad15a", "#b57bff", "#ff8a3d", "#ff6fb5", "#36d6c6"];
+const BOT_NAMES = ["Pip", "Bramble", "Cobble", "Maple", "Rusty", "Juniper", "Flint", "Clover"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'voxel-builders',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A shared JSON field, parsed once per change (read-only: never mutate what this returns). */
+function shared(key, fallback) {
+  const raw = S.shared[key], m = memo.get(key);
+  if (m && m.raw === raw) return m.v;
+  const v = parse(raw, fallback); memo.set(key, { raw, v }); return v;
+}
+let net = null, S = { entities: { players: {} }, shared: {} };
+let player = null; // MP.auth client for world-memory saves (null offline)
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+
+// ── WORLD MEMORY ────────────────────────────────────────────────────────────────────
+// A relay room forgets everything when its last player leaves, so the PLAYERS remember the world:
+//   1. Every CONFIG.saveEvery ms and when the page closes, each player saves a copy of the live
+//      world with its `rev` (how many changes PEOPLE made; bots don't count, so a fresh world
+//      full of bot builds never beats a saved one) to its player save (player.data, namespace
+//      CONFIG.saveNs) and to this browser (localStorage). A copy with a higher rev than the live
+//      world is never overwritten: it is kept and offered.
+//   2. The first player into an empty room becomes host and loads its copy into shared.
+//   3. A player who joins holding a copy with a HIGHER rev than the live world offers it: it
+//      writes the copy into its own entity (`wmh` header, `wm0`, `wm1`… chunks under 2048
+//      characters) and the host adopts it. The copy with more building in it wins; changes
+//      made only in the other copy are lost.
+// The game supplies worldSnapshot(), liveRev() (-1 = no world yet) and loadWorld(world, rev).
+const memory = { saved: null, ready: false, cloud: null, lastJson: "", lastSave: 0, offerRev: 0, offerN: 0 };
+const memoryKey = () => "mpa-world:" + MP_CONNECT.room + (net.offline ? ":offline" : "");
+
+/** Read my copy: this browser's and my cloud save, whichever has the higher rev. */
+async function loadMemory() {
+  let best = null;
+  try { best = JSON.parse(localStorage.getItem(memoryKey()) || "null"); } catch {}
+  if (player) {
+    try {
+      const doc = (await player.data.get(CONFIG.saveNs)).data;
+      if (doc && doc.room === MP_CONNECT.room && doc.world && (!best || doc.rev > best.rev)) best = doc;
+      memory.cloud = true;
+    } catch (e) { memory.cloud = false; console.warn("World memory: no cloud save, this browser only:", e && e.message); }
+  }
+  memory.saved = best && best.room === MP_CONNECT.room && best.world && typeof best.rev === "number" ? best : null;
+  memory.lastJson = memory.saved ? JSON.stringify(memory.saved.world) : "";
+  memory.ready = true;
+}
+
+/** Save my copy of the live world, unless it is unchanged or older than the copy I hold. */
+function rememberWorld() {
+  if (ATTRACT || !memory.ready) return;
+  const rev = liveRev();
+  if (rev < 0 || (memory.saved && rev < memory.saved.rev)) return; // mine is newer: keep it, keep offering it
+  const doc = { room: MP_CONNECT.room, rev, at: Date.now(), world: worldSnapshot() };
+  const json = JSON.stringify(doc.world);
+  if (json === memory.lastJson) return;
+  memory.lastJson = json; memory.saved = doc;
+  try { localStorage.setItem(memoryKey(), JSON.stringify(doc)); } catch {}
+  if (player && memory.cloud) {
+    player.data.set(doc, { namespace: CONFIG.saveNs })
+      .catch((e) => e && e.current ? player.data.set(doc, { namespace: CONFIG.saveNs, version: e.current.version }) : Promise.reject(e))
+      .catch((e) => { if (e && (e.status === 401 || e.status === 403)) memory.cloud = false; });
+  }
+  const tag = document.getElementById("saved");
+  if (tag) { tag.classList.add("on"); setTimeout(() => tag.classList.remove("on"), 1600); }
+}
+
+/** Once a second: offer my copy if it beats the live world (the host simply loads it). */
+function offerMemory() {
+  if (ATTRACT || !memory.ready) return;
+  const mine = memory.saved, live = liveRev(), better = mine && mine.rev > live;
+  if (isHost()) {
+    if (memory.offerRev) clearOffer();
+    if (better && live >= 0 && loadWorld(mine.world, mine.rev)) memoryAdopted("");
+    return;
+  }
+  if (better && memory.offerRev !== mine.rev) {
+    const json = JSON.stringify(mine.world), fields = {}, n = Math.ceil(json.length / 1900);
+    if (n > 40) return; // too big for my entity: keep it for when I am host
+    for (let i = 0; i < n; i++) fields["wm" + i] = "~" + json.slice(i * 1900, (i + 1) * 1900); // "~" keeps it a string
+    net.me.set(fields);
+    net.me.set("wmh", JSON.stringify({ room: MP_CONNECT.room, rev: mine.rev, n })); // header last: chunks land first
+    memory.offerRev = mine.rev; memory.offerN = n;
+  } else if (!better && memory.offerRev) clearOffer();
+}
+function clearOffer() {
+  const fields = { wmh: "" };
+  for (let i = 0; i < memory.offerN; i++) fields["wm" + i] = "";
+  net.me.set(fields); memory.offerRev = 0; memory.offerN = 0;
+}
+
+/** Host, once a second: adopt the best complete offer that beats the live world. */
+function adoptOffers() {
+  let best = null;
+  for (const id of livePlayers()) {
+    const p = S.entities.players[id], h = id !== net.sessionId && parse(p && p.wmh, null);
+    if (!h || h.room !== MP_CONNECT.room || !(h.n <= 40) || !(h.rev > liveRev()) || (best && h.rev <= best.rev)) continue;
+    let json = "";
+    for (let i = 0; i < h.n && json !== null; i++) { const c = p["wm" + i]; json = typeof c === "string" && c[0] === "~" ? json + c.slice(1) : null; }
+    const world = parse(json, null);
+    if (world) best = { rev: h.rev, world, name: p.n || "A player" };
+  }
+  if (best && loadWorld(best.world, best.rev)) memoryAdopted(best.name);
+}
+function memoryAdopted(name) {
+  const text = name ? `${name} brought back the world they saved` : "Welcome back: your saved world is loaded";
+  toast(text); net.send("memory", { text: name ? text : "The host brought back the world they saved" });
+}
+function memoryTick() {
+  offerMemory();
+  if (isHost() && !ATTRACT) adoptOffers();
+  if (performance.now() - memory.lastSave > CONFIG.saveEvery) { memory.lastSave = performance.now(); rememberWorld(); }
+}
+addEventListener("pagehide", () => rememberWorld());
+document.addEventListener("visibilitychange", () => { if (document.hidden) rememberWorld(); });
+
+// ── BLOCKS ──────────────────────────────────────────────────────────────────────────
+// A block is a cell (x, y, z) with a color index. Region field "r<i>" holds its blocks as
+// "~" + 3 characters each: two for the spot inside the region, one for the color.
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const RG = CONFIG.region, RN = CONFIG.size / RG, REGIONS = RN * RN, MID = CONFIG.size / 2;
+const key = (x, y, z) => (y << 12) | (z << 6) | x;           // x, z < 64
+const kx = (k) => k & 63, ky = (k) => k >> 12, kz = (k) => (k >> 6) & 63;
+const regionOf = (x, z) => Math.floor(z / RG) * RN + Math.floor(x / RG);
+const inBounds = (x, y, z) => x >= 0 && z >= 0 && x < CONFIG.size && z < CONFIG.size && y >= 0 && y < CONFIG.height;
+
+function encodeRegion(map) {
+  let s = "~";
+  for (const [k, c] of map) { const n = (ky(k) * RG + kz(k) % RG) * RG + kx(k) % RG; s += B64[n >> 6] + B64[n & 63] + B64[c]; }
+  return s;
+}
+function decodeRegion(raw, ri) {
+  const out = new Map(), x0 = (ri % RN) * RG, z0 = Math.floor(ri / RN) * RG;
+  if (typeof raw !== "string" || raw[0] !== "~") return out;
+  for (let i = 1; i + 3 <= raw.length && out.size < CONFIG.regionCap; i += 3) {
+    const a = B64.indexOf(raw[i]), b = B64.indexOf(raw[i + 1]), c = B64.indexOf(raw[i + 2]), n = a * 64 + b;
+    if (a < 0 || b < 0 || c < 1 || c >= COLORS.length) continue;
+    const y = Math.floor(n / (RG * RG));
+    if (y < CONFIG.height) out.set(key(x0 + (n % RG), y, z0 + Math.floor(n / RG) % RG), c);
+  }
+  return out;
+}
+
+// What everyone draws: the regions from state plus my own pending edits.
+const view = { raw: [], maps: [], cells: new Map(), dirty: true };
+const pending = new Map(); // key -> { c (0 = broken), until }
+const pops = new Map();    // key -> time a block appeared (grow-in animation)
+const sharedColor = (k) => { const m = view.maps[regionOf(kx(k), kz(k))]; return m && m.get(k); };
+function syncView(now) {
+  for (let ri = 0; ri < REGIONS; ri++) {
+    const raw = S.shared["r" + ri];
+    if (raw === view.raw[ri]) continue;
+    const old = view.maps[ri], next = decodeRegion(raw, ri);
+    if (old) { // what changed: new blocks grow in, removed ones burst
+      let bursts = 0;
+      for (const k of next.keys()) if (!old.has(k) && !pending.has(k)) pops.set(k, now);
+      for (const [k, c] of old) if (!next.has(k) && !pending.has(k) && bursts++ < 30) burst(k, c);
+    }
+    view.raw[ri] = raw; view.maps[ri] = next; view.dirty = true;
+  }
+  for (const [k, p] of pending) if ((p.c ? sharedColor(k) === p.c : sharedColor(k) === undefined) || now > p.until) { pending.delete(k); view.dirty = true; }
+  if (view.dirty) { view.dirty = false; rebuildBlocks(); }
+}
+
+// ── WORLD (HOST) ────────────────────────────────────────────────────────────────────
+const world = { regions: [], rev: 0, adopted: false, dirty: new Set(), revDirty: false, bots: new Map(), lastFlush: 0, lastBots: 0, botsJson: "" };
+const hostHas = (k) => world.regions[regionOf(kx(k), kz(k))].has(k);
+const totalBlocks = () => world.regions.reduce((n, m) => n + m.size, 0);
+const rand = ATTRACT ? mulberry32(CONFIG.attractSeed) : Math.random; // the preview builds the same village every time
+const rnd = (a, b) => a + rand() * (b - a);
+let startedAt = 0;
+
+/** Become host: take the world exactly as state has it. */
+function adoptWorld() {
+  world.regions = Array.from({ length: REGIONS }, (_, ri) => decodeRegion(S.shared["r" + ri], ri));
+  world.rev = Number(S.shared.rev) || 0; world.dirty.clear(); world.adopted = true;
+  world.bots.clear();
+  for (const b of shared("bots", [])) world.bots.set(b.i, { id: b.i, name: b.n, skin: b.s, x: b.x, y: b.y, z: b.z, r: b.r, plan: null, target: null, nextAt: 0, nextBlock: 0 });
+}
+/** World memory: install a saved world (checked block by block). */
+function loadWorld(snap, rev) {
+  if (!snap || !Array.isArray(snap.r) || snap.r.length !== REGIONS || typeof rev !== "number") return false;
+  world.regions = snap.r.map((raw, ri) => decodeRegion(raw, ri));
+  world.rev = rev; world.adopted = true; world.revDirty = true;
+  for (let ri = 0; ri < REGIONS; ri++) world.dirty.add(ri);
+  for (const b of world.bots.values()) { b.plan = null; b.target = null; }
+  return true;
+}
+function worldSnapshot() {
+  return { r: Array.from({ length: REGIONS }, (_, ri) => isHost() && world.adopted ? encodeRegion(world.regions[ri]) : typeof S.shared["r" + ri] === "string" ? S.shared["r" + ri] : "~") };
+}
+function liveRev() { return isHost() && world.adopted ? world.rev : typeof S.shared.rev === "number" ? S.shared.rev : -1; }
+
+/** A fresh island: a few trees, the same in every new room. */
+function defaultWorld() {
+  world.regions = Array.from({ length: REGIONS }, () => new Map());
+  world.rev = 0; world.adopted = true; world.revDirty = true;
+  for (let ri = 0; ri < REGIONS; ri++) world.dirty.add(ri);
+  const seeded = mulberry32(11);
+  for (const [x, z] of [[8, 9], [38, 7], [40, 37], [6, 40], [30, 20], [14, 26]]) BLUEPRINTS.tree(x, z, seeded).forEach(placeCell);
+  if (ATTRACT) for (let i = 0; i < 7; i++) { const site = findSite(); if (site) site.cells.forEach(placeCell); }
+}
+const placeCell = ([x, y, z, c]) => applyPlace("bot", { x, y, z, c }, false);
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/** A "place" intent (or a bot's block). `human` changes count toward rev. */
+function applyPlace(from, m, human) {
+  const { x, y, z, c } = m || {};
+  if (![x, y, z, c].every(Number.isInteger) || !inBounds(x, y, z) || c < 1 || c >= COLORS.length) return false;
+  const ri = regionOf(x, z), reg = world.regions[ri], k = key(x, y, z);
+  if (reg.has(k) || reg.size >= CONFIG.regionCap || (human && !inReach(from, x, y, z))) return false;
+  reg.set(k, c); world.dirty.add(ri);
+  if (human) { world.rev++; world.revDirty = true; }
+  return true;
+}
+function applyBreak(from, m, human) {
+  const { x, y, z } = m || {};
+  if (![x, y, z].every(Number.isInteger) || !inBounds(x, y, z)) return false;
+  const ri = regionOf(x, z), k = key(x, y, z);
+  if (!world.regions[ri].has(k) || (human && !inReach(from, x, y, z))) return false;
+  world.regions[ri].delete(k); world.dirty.add(ri);
+  if (human) { world.rev++; world.revDirty = true; }
+  return true;
+}
+function inReach(from, x, y, z) {
+  if (from === net.sessionId) return true;
+  const p = parse(S.entities.players[from]?.p, null);
+  return !p || Math.hypot(p.x - x - 0.5, p.y + 1.6 - y - 0.5, p.z - z - 0.5) < CONFIG.reach + 3;
+}
+
+/** Write changed regions (4 at most per flush, 4 flushes a second), then rev, then bots. */
+function flush(now) {
+  if (now - world.lastFlush < 250) return;
+  world.lastFlush = now;
+  let n = 0;
+  for (const ri of world.dirty) { if (n++ >= 4) break; net.setShared("r" + ri, encodeRegion(world.regions[ri])); world.dirty.delete(ri); }
+  if (world.revDirty && !world.dirty.size) { net.setShared("rev", world.rev); world.revDirty = false; }
+}
+
+function hostTick(dt, now) {
+  if (!world.adopted) {
+    if (S.shared.rev !== undefined) adoptWorld();
+    else if (memory.ready || now - startedAt > 3000) { if (!(memory.saved && loadWorld(memory.saved.world, memory.saved.rev))) defaultWorld(); else memoryAdopted(""); }
+    else return; // first one here: wait a moment for my saved world
+  }
+  const humans = livePlayers().length - (ATTRACT ? 1 : 0), want = Math.max(0, CONFIG.seats - humans);
+  if (world.bots.size < want) spawnBot();
+  if (world.bots.size > want) world.bots.delete(world.bots.keys().next().value);
+  for (const b of world.bots.values()) botStep(b, dt, now);
+  flush(now);
+  if (now - world.lastBots > 120) {
+    world.lastBots = now;
+    const json = JSON.stringify([...world.bots.values()].map((b) => ({ i: b.id, n: b.name, s: b.skin, x: +b.x.toFixed(2), y: +b.y.toFixed(2), z: +b.z.toFixed(2), r: +b.r.toFixed(2), w: b.plan && !b.target ? 1 : 0 })));
+    if (json !== world.botsJson) { world.botsJson = json; net.setShared("bots", json); }
+  }
+}
+
+// Bots: walk to a free spot, build a blueprint bottom-up, wander, repeat.
+function spawnBot() {
+  const used = new Set([...world.bots.values()].map((b) => b.name)), name = BOT_NAMES.find((n) => !used.has(n)) || "Bot";
+  const id = "b" + Math.random().toString(36).slice(2, 6);
+  world.bots.set(id, { id, name, skin: SKINS[(world.bots.size + 4) % SKINS.length], x: MID + rnd(-6, 6), y: 0, z: MID + rnd(-6, 6), r: 0, plan: null, target: null, nextAt: 0, nextBlock: 0 });
+}
+function botStep(b, dt, now) {
+  if (!b.plan && !b.target) {
+    if (now < b.nextAt) return;
+    b.plan = totalBlocks() < CONFIG.botBlockLimit ? findSite() : null;
+    b.target = b.plan ? b.plan.stand : { x: rnd(3, CONFIG.size - 3), z: rnd(3, CONFIG.size - 3) };
+  }
+  if (b.target) {
+    const dx = b.target.x - b.x, dz = b.target.z - b.z, d = Math.hypot(dx, dz);
+    const s = Math.min(d, 3 * dt), nx = b.x + (dx / d) * s, nz = b.z + (dz / d) * s;
+    if (d < 0.3) { b.target = null; if (!b.plan) b.nextAt = now + rnd(600, 2500); }
+    else if (columnTop(clampCell(nx), clampCell(nz), hostHas) > b.y + 1.2) { b.target = b.plan = null; b.nextAt = now + 400; } // a wall: go elsewhere
+    else { b.x = nx; b.z = nz; b.r = Math.atan2(-dx, -dz); }
+  } else if (now > b.nextBlock) { // building: the next block of the plan
+    const cell = b.plan.cells[b.plan.i++];
+    b.nextBlock = now + CONFIG.botBuildMs;
+    placeCell(cell);
+    b.r = Math.atan2(-(cell[0] + 0.5 - b.x), -(cell[2] + 0.5 - b.z));
+    if (b.plan.i >= b.plan.cells.length) { b.plan = null; b.nextAt = now + rnd(1200, 3500); }
+  }
+  b.y += (columnTop(clampCell(b.x), clampCell(b.z), hostHas) - b.y) * Math.min(1, dt * 10);
+}
+/** A blueprint at a random free spot, or null. */
+function findSite() {
+  const kinds = ["tree", "tree", "house", "house", "tower", "garden"];
+  const lo = ATTRACT ? MID - 13 : 4, hi = ATTRACT ? MID + 8 : CONFIG.size - 9; // the preview keeps them in camera
+  for (let tries = 0; tries < 24; tries++) {
+    const kind = kinds[Math.floor(rand() * kinds.length)], x = Math.floor(rnd(lo, hi)), z = Math.floor(rnd(lo, hi));
+    const cells = BLUEPRINTS[kind](x, z, rand), count = new Map();
+    let ok = cells.every(([cx, cy, cz]) => inBounds(cx, cy, cz) && !hostHas(key(cx, cy, cz)));
+    for (const [cx, , cz] of cells) count.set(regionOf(cx, cz), (count.get(regionOf(cx, cz)) || 0) + 1);
+    for (const [ri, n] of count) if (world.regions[ri].size + n > CONFIG.regionCap) ok = false;
+    for (let dx = -1; ok && dx <= 6; dx++) for (let dz = -1; ok && dz <= 6; dz++) if (hostHas(key(x + dx, 0, z + dz))) ok = false; // keep a gap
+    if (ok) return { cells, i: 0, stand: { x: x - 0.8, z: z - 0.8 } };
+  }
+  return null;
+}
+const BLUEPRINTS = { // each returns [x, y, z, color] cells, bottom-up
+  tree(x, z, r) {
+    const h = 3 + Math.floor(r() * 2), out = [];
+    for (let y = 0; y < h; y++) out.push([x + 1, y, z + 1, WOOD]);
+    for (let y = h - 1; y <= h; y++) for (let dx = 0; dx < 3; dx++) for (let dz = 0; dz < 3; dz++) if (dx !== 1 || dz !== 1 || y === h) out.push([x + dx, y, z + dz, LEAF]);
+    out.push([x + 1, h + 1, z + 1, LEAF]);
+    return out;
+  },
+  house(x, z, r) {
+    const wall = [BRICK, WOOD, STONE, SNOW][Math.floor(r() * 4)], roof = wall === BRICK ? WOOD : BRICK, out = [];
+    for (let y = 0; y < 3; y++) for (let dx = 0; dx < 5; dx++) for (let dz = 0; dz < 5; dz++) {
+      if (dx > 0 && dx < 4 && dz > 0 && dz < 4) continue;
+      if (dz === 4 && dx === 2 && y < 2) continue; // the door
+      out.push([x + dx, y, z + dz, y === 1 && (dx === 2 || dz === 2) ? BLUE : wall]);
+    }
+    for (let dx = 0; dx < 5; dx++) for (let dz = 0; dz < 5; dz++) out.push([x + dx, 3, z + dz, roof]);
+    for (let dx = 1; dx < 4; dx++) for (let dz = 1; dz < 4; dz++) out.push([x + dx, 4, z + dz, roof]);
+    out.push([x + 2, 5, z + 2, GOLD]);
+    return out;
+  },
+  tower(x, z) {
+    const out = [];
+    for (let y = 0; y < 6; y++) for (let dx = 0; dx < 3; dx++) for (let dz = 0; dz < 3; dz++) if (dx !== 1 || dz !== 1) out.push([x + dx, y, z + dz, y === 5 ? GOLD : STONE]);
+    for (const [dx, dz] of [[0, 0], [2, 0], [0, 2], [2, 2]]) out.push([x + dx, 6, z + dz, STONE]);
+    return out;
+  },
+  garden(x, z, r) {
+    const out = [], flower = [GOLD, SNOW, BRICK][Math.floor(r() * 3)];
+    for (let dx = 0; dx < 4; dx++) for (let dz = 0; dz < 4; dz++) out.push([x + dx, 0, z + dz, dx % 3 && dz % 3 ? BLUE : GRASS]);
+    for (const [dx, dz] of [[0, 0], [3, 0], [0, 3], [3, 3]]) out.push([x + dx, 1, z + dz, flower]);
+    return out;
+  },
+};
+const clampCell = (v) => Math.max(0, Math.min(CONFIG.size - 1, Math.floor(v)));
+function columnTop(x, z, has) { for (let y = CONFIG.height - 1; y >= 0; y--) if (has(key(x, y, z))) return y + 1; return 0; }
+
+// ── SCENE ───────────────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#9fd8ff");
+scene.fog = new THREE.Fog("#9fd8ff", 55, 150);
+const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 400);
+camera.rotation.order = "YXZ";
+function fit() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+scene.add(new THREE.HemisphereLight("#ffffff", "#5d7f4a", 1.2));
+const sun = new THREE.DirectionalLight("#fff1d6", 1.5);
+sun.position.set(MID + 26, 50, MID + 16); sun.target.position.set(MID, 0, MID);
+sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.0006;
+Object.assign(sun.shadow.camera, { left: -38, right: 38, top: 38, bottom: -38, near: 1, far: 150 });
+scene.add(sun, sun.target);
+
+function canvasTex(w, h, paint, repeat) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...repeat); }
+  return t;
+}
+const speckle = (c, w, h, n, a) => { for (let i = 0; i < n; i++) { c.fillStyle = `rgba(0,0,0,${Math.random() * a})`; c.fillRect(Math.floor(Math.random() * w), Math.floor(Math.random() * h), 1, 1); } };
+const grassTex = canvasTex(16, 16, (c) => { c.fillStyle = "#6cc04a"; c.fillRect(0, 0, 16, 16); speckle(c, 16, 16, 50, 0.12); c.fillStyle = "#0000000f"; c.fillRect(0, 15, 16, 1); c.fillRect(15, 0, 1, 16); }, [CONFIG.size, CONFIG.size]);
+const dirtTex = canvasTex(16, 16, (c) => { c.fillStyle = "#8a5a36"; c.fillRect(0, 0, 16, 16); speckle(c, 16, 16, 60, 0.2); c.fillStyle = "#6cc04a"; c.fillRect(0, 0, 16, 3); }, [CONFIG.size, 3]);
+const dirt = new THREE.MeshLambertMaterial({ map: dirtTex });
+const island = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.size, 3, CONFIG.size), [dirt, dirt, new THREE.MeshLambertMaterial({ map: grassTex }), dirt, dirt, dirt]);
+island.position.set(MID, -1.5, MID); island.receiveShadow = true; scene.add(island);
+const beach = new THREE.Mesh(new THREE.BoxGeometry(CONFIG.size + 6, 2, CONFIG.size + 6), new THREE.MeshLambertMaterial({ color: "#f0d9a0" }));
+beach.position.set(MID, -1.6, MID); scene.add(beach);
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.MeshLambertMaterial({ color: "#3d9ae0" }));
+sea.rotation.x = -Math.PI / 2; sea.position.set(MID, -1.1, MID); scene.add(sea);
+const clouds = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#bcd6ec" }), 14);
+const m4 = new THREE.Matrix4(), cloudSeed = mulberry32(3);
+for (let i = 0; i < 14; i++) { m4.makeScale(6 + cloudSeed() * 10, 1.5, 4 + cloudSeed() * 6).setPosition(MID - 90 + cloudSeed() * 180, 34 + cloudSeed() * 8, MID - 90 + cloudSeed() * 180); clouds.setMatrixAt(i, m4); }
+scene.add(clouds);
+
+// Blocks: one instanced mesh, rebuilt when a region changes; new blocks grow in.
+const MAX_BLOCKS = REGIONS * CONFIG.regionCap + 200;
+const blockTex = canvasTex(16, 16, (c) => { c.fillStyle = "#fff"; c.fillRect(0, 0, 16, 16); speckle(c, 16, 16, 40, 0.1); c.fillStyle = "#00000024"; c.fillRect(0, 15, 16, 1); c.fillRect(15, 0, 1, 16); c.fillStyle = "#ffffff"; c.fillRect(0, 0, 16, 1); c.fillRect(0, 0, 1, 16); });
+const blocks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: blockTex }), MAX_BLOCKS);
+blocks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOCKS * 3), 3);
+blocks.castShadow = blocks.receiveShadow = true; blocks.frustumCulled = false; blocks.count = 0; scene.add(blocks);
+const BLOCK_COLORS = COLORS.map((c) => c && new THREE.Color(c));
+const keyIndex = new Map();
+function placeInstance(i, k, s) { m4.makeScale(s, s, s).setPosition(kx(k) + 0.5, ky(k) + 0.5 - (1 - s) * 0.5, kz(k) + 0.5); blocks.setMatrixAt(i, m4); }
+function rebuildBlocks() {
+  const cells = view.cells; cells.clear();
+  for (const m of view.maps) if (m) for (const [k, c] of m) cells.set(k, c);
+  for (const [k, p] of pending) if (p.c) cells.set(k, p.c); else cells.delete(k);
+  let i = 0; keyIndex.clear();
+  for (const [k, c] of cells) { if (i >= MAX_BLOCKS) break; placeInstance(i, k, 1); blocks.setColorAt(i, BLOCK_COLORS[c]); keyIndex.set(k, i++); }
+  blocks.count = i; blocks.instanceMatrix.needsUpdate = true; blocks.instanceColor.needsUpdate = true;
+}
+const easeOutBack = (t) => 1 + 2.7 * (t - 1) ** 3 + 1.7 * (t - 1) ** 2;
+function animatePops(now) {
+  if (!pops.size) return;
+  for (const [k, t0] of pops) {
+    const i = keyIndex.get(k), t = (now - t0) / 260;
+    if (i === undefined || t >= 1) { pops.delete(k); if (i !== undefined) placeInstance(i, k, 1); continue; }
+    placeInstance(i, k, Math.max(0.05, easeOutBack(Math.max(0, t))));
+  }
+  blocks.instanceMatrix.needsUpdate = true;
+}
+// Break bursts: little cubes in the block's color.
+const PMAX = 260, parts = [];
+const partMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.17, 0.17, 0.17), new THREE.MeshLambertMaterial(), PMAX);
+partMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PMAX * 3), 3);
+partMesh.frustumCulled = false; partMesh.count = 0; scene.add(partMesh);
+function burst(k, c) {
+  for (let n = 0; n < 9 && parts.length < PMAX; n++) parts.push({ x: kx(k) + rnd(0.2, 0.8), y: ky(k) + rnd(0.2, 0.8), z: kz(k) + rnd(0.2, 0.8), vx: rnd(-2.5, 2.5), vy: rnd(1.5, 5), vz: rnd(-2.5, 2.5), life: rnd(0.5, 0.9), c });
+}
+function particlesTick(dt) {
+  let i = 0;
+  for (let n = parts.length - 1; n >= 0; n--) {
+    const p = parts[n]; p.life -= dt; p.vy -= 14 * dt; p.x += p.vx * dt; p.y = Math.max(0.08, p.y + p.vy * dt); p.z += p.vz * dt;
+    if (p.life <= 0) { parts.splice(n, 1); continue; }
+    m4.makeScale(p.life + 0.3, p.life + 0.3, p.life + 0.3).setPosition(p.x, p.y, p.z); partMesh.setMatrixAt(i, m4); partMesh.setColorAt(i++, BLOCK_COLORS[p.c]);
+  }
+  partMesh.count = i; partMesh.instanceMatrix.needsUpdate = true; if (i) partMesh.instanceColor.needsUpdate = true;
+}
+// Aim: an outline on the block you'd break, a ghost where you'd place.
+const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: "#ffffff" }));
+const ghost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false }));
+outline.visible = ghost.visible = false; scene.add(outline, ghost);
+
+// Builders: blocky bodies with a name tag, eased toward where they last said they were.
+const skinMat = new THREE.MeshLambertMaterial({ color: "#f1c48f" }), pantsMat = new THREE.MeshLambertMaterial({ color: "#3b3f58" }), eyeMat = new THREE.MeshBasicMaterial({ color: "#1d1d29" });
+function part(w, h, d, mat, x, y, z, parent) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; }
+function limb(x, y, w, h, mat, g) { const pivot = new THREE.Group(); pivot.position.set(x, y, 0); part(w, h, 0.26, mat, 0, -h / 2, 0, pivot); g.add(pivot); return pivot; }
+function makeAvatar(color, name) {
+  const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color });
+  const legL = limb(-0.15, 0.72, 0.26, 0.72, pantsMat, g), legR = limb(0.15, 0.72, 0.26, 0.72, pantsMat, g);
+  part(0.62, 0.72, 0.36, mat, 0, 1.08, 0, g);
+  part(0.5, 0.5, 0.5, skinMat, 0, 1.69, 0, g);
+  part(0.09, 0.11, 0.02, eyeMat, -0.11, 1.72, 0.26, g); part(0.09, 0.11, 0.02, eyeMat, 0.11, 1.72, 0.26, g);
+  const armL = limb(-0.42, 1.42, 0.2, 0.66, mat, g), armR = limb(0.42, 1.42, 0.2, 0.66, mat, g);
+  if (name) {
+    const tex = canvasTex(256, 64, (c) => { c.font = "bold 34px system-ui"; c.textAlign = "center"; c.lineWidth = 6; c.strokeStyle = "#000a"; c.strokeText(name, 128, 44); c.fillStyle = "#fff"; c.fillText(name, 128, 44); });
+    tex.magFilter = THREE.LinearFilter;
+    const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false })); tag.scale.set(2.4, 0.6, 1); tag.position.y = 2.35; g.add(tag);
+  }
+  g.userData = { legL, legR, armL, armR, phase: Math.random() * 6 };
+  scene.add(g); return g;
+}
+const views = new Map(); // id -> { g, x, y, z, r }
+function showAvatar(id, color, name, p, building, dt, seen) {
+  let v = views.get(id);
+  if (!v) { v = { g: makeAvatar(color, ATTRACT ? "" : name), x: p.x, y: p.y, z: p.z, r: p.r }; views.set(id, v); }
+  const k = 1 - Math.pow(0.002, dt), ox = v.x, oz = v.z;
+  v.x += (p.x - v.x) * k; v.y += (p.y - v.y) * k; v.z += (p.z - v.z) * k;
+  v.r += Math.atan2(Math.sin(p.r - v.r), Math.cos(p.r - v.r)) * k;
+  v.g.position.set(v.x, v.y, v.z); v.g.rotation.y = v.r + Math.PI;
+  const u = v.g.userData, speed = Math.hypot(v.x - ox, v.z - oz) / Math.max(dt, 0.001), swing = Math.min(1, speed / 3) * 0.8;
+  u.phase += dt * 9;
+  u.legL.rotation.x = Math.sin(u.phase) * swing; u.legR.rotation.x = -u.legL.rotation.x;
+  u.armL.rotation.x = -u.legL.rotation.x; u.armR.rotation.x = building ? -1.3 + Math.sin(u.phase * 1.7) * 0.6 : u.legL.rotation.x;
+  seen.add(id);
+}
+function drawBuilders(dt) {
+  const seen = new Set();
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    if (id === net.sessionId) continue;
+    const pos = parse(p.p, null); if (pos) showAvatar(id, p.s || "#ccc", p.n || "Player", pos, false, dt, seen);
+  }
+  const bots = isHost() ? [...world.bots.values()].map((b) => ({ i: b.id, n: b.name, s: b.skin, x: b.x, y: b.y, z: b.z, r: b.r, w: b.plan && !b.target })) : shared("bots", []);
+  for (const b of bots) showAvatar(b.i, b.s, b.n, b, !!b.w, dt, seen);
+  for (const [id, v] of views) if (!seen.has(id)) { scene.remove(v.g); views.delete(id); }
+}
+
+// ── ME ──────────────────────────────────────────────────────────────────────────────
+const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() ||
+  ["Brave", "Sunny", "Clever", "Happy", "Cozy", "Lucky"][Math.floor(Math.random() * 6)] + " " + ["Builder", "Mason", "Crafter", "Digger", "Maker"][Math.floor(Math.random() * 5)];
+let mySkin = SKINS[0]; // picked on join: the first body color nobody in the room has
+const me = { x: MID, y: 0, z: MID + 10, vy: 0, yaw: 0, pitch: -0.3, onGround: false, color: BRICK, lastSend: 0, sent: "", aim: null };
+const solid = (x, y, z) => x < 0 || z < 0 || x >= CONFIG.size || z >= CONFIG.size || y < 0 || view.cells.has(key(x, y, z));
+/** Does my body (0.6 wide, 1.75 tall, feet at y) touch a solid cell? */
+function bodyHits(x, y, z) {
+  for (let ix = Math.floor(x - 0.3); ix <= Math.floor(x + 0.3 - 1e-4); ix++)
+    for (let iy = Math.floor(y); iy <= Math.floor(y + 1.75 - 1e-4); iy++)
+      for (let iz = Math.floor(z - 0.3); iz <= Math.floor(z + 0.3 - 1e-4); iz++) if (solid(ix, iy, iz)) return true;
+  return false;
+}
+function spawnMe() {
+  me.x = MID + rnd(-3, 3); me.z = MID + 12 + rnd(-2, 2); me.yaw = 0; me.pitch = -0.3; me.vy = 0;
+  me.y = columnTop(Math.floor(me.x), Math.floor(me.z), (k) => view.cells.has(k));
+}
+function moveMe(dt) {
+  const k = input.keys, playing = !card.hidden ? 0 : 1;
+  let f = ((k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0) - input.stick.y) * playing;
+  let s = ((k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) + input.stick.x) * playing;
+  const len = Math.hypot(f, s); if (len > 1) { f /= len; s /= len; }
+  const sin = Math.sin(me.yaw), cos = Math.cos(me.yaw);
+  const vx = (-sin * f + cos * s) * CONFIG.walk, vz = (-cos * f - sin * s) * CONFIG.walk;
+  if ((k.has("Space") || input.jump) && me.onGround && playing) me.vy = CONFIG.jump;
+  me.vy = Math.max(-30, me.vy - CONFIG.gravity * dt);
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(vx), Math.abs(vz), Math.abs(me.vy)) * dt / 0.4));
+  for (let i = 0, h = dt / steps; i < steps; i++) {
+    let blocked = false;
+    if (!bodyHits(me.x + vx * h, me.y, me.z)) me.x += vx * h; else blocked = true;
+    if (!bodyHits(me.x, me.y, me.z + vz * h)) me.z += vz * h; else blocked = true;
+    const ny = me.y + me.vy * h;
+    if (!bodyHits(me.x, ny, me.z)) { me.y = ny; me.onGround = false; }
+    else { if (me.vy < 0) { me.y = Math.floor(me.y + 1e-6); me.onGround = true; } me.vy = 0; }
+    if (blocked && me.onGround && !bodyHits(me.x + vx * 0.08, me.y + 1.05, me.z + vz * 0.08)) me.vy = CONFIG.jump; // step up a block on its own
+  }
+  while (bodyHits(me.x, me.y, me.z) && me.y < CONFIG.height + 2) me.y = Math.floor(me.y) + 1; // a block appeared inside me
+}
+/** The block under the crosshair (a grid walk along the view ray), and where a new one would go. */
+function aim() {
+  const o = camera.position, d = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  for (const a of ["x", "y", "z"]) if (Math.abs(d[a]) < 1e-9) d[a] = 1e-9;
+  let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z), prev = null;
+  const step = [Math.sign(d.x), Math.sign(d.y), Math.sign(d.z)], delta = [Math.abs(1 / d.x), Math.abs(1 / d.y), Math.abs(1 / d.z)];
+  const next = [d.x > 0 ? x + 1 - o.x : o.x - x, d.y > 0 ? y + 1 - o.y : o.y - y, d.z > 0 ? z + 1 - o.z : o.z - z].map((v, i) => v * delta[i]);
+  for (let t = 0; t <= CONFIG.reach;) {
+    const inside = x >= 0 && z >= 0 && x < CONFIG.size && z < CONFIG.size;
+    if (inside && (y < 0 || view.cells.has(key(x, y, z)))) return { cell: [x, y, z], ground: y < 0, place: prev };
+    prev = [x, y, z];
+    const a = next[0] < next[1] ? (next[0] < next[2] ? 0 : 2) : (next[1] < next[2] ? 1 : 2);
+    t = next[a]; next[a] += delta[a];
+    if (a === 0) x += step[0]; else if (a === 1) y += step[1]; else z += step[2];
+  }
+  return null;
+}
+const overlapsMe = ([x, y, z]) => x + 1 > me.x - 0.3 && x < me.x + 0.3 && z + 1 > me.z - 0.3 && z < me.z + 0.3 && y + 1 > me.y && y < me.y + 1.75;
+function act(place) {
+  const hit = me.aim;
+  if (!hit || ATTRACT) return;
+  const c = place ? hit.place : hit.cell;
+  if (!c || !inBounds(...c) || (place && overlapsMe(c))) return;
+  const k = key(...c), msg = { x: c[0], y: c[1], z: c[2] };
+  if (place) {
+    if (view.cells.has(k)) return;
+    const reg = view.maps[regionOf(c[0], c[2])];
+    if (reg && reg.size >= CONFIG.regionCap) { toast("This part of the island is full"); return; }
+    msg.c = me.color; pending.set(k, { c: me.color, until: performance.now() + 2500 }); pops.set(k, performance.now()); sfx(520, 0.07);
+    if (isHost()) applyPlace(net.sessionId, msg, true); else net.send("place", msg);
+  } else {
+    if (hit.ground) return;
+    burst(k, view.cells.get(k)); pending.set(k, { c: 0, until: performance.now() + 2500 }); sfx(180, 0.12, "sawtooth");
+    if (isHost()) applyBreak(net.sessionId, msg, true); else net.send("break", msg);
+  }
+  view.dirty = true;
+}
+function publish(now) {
+  if (now - me.lastSend < 100) return;
+  const json = JSON.stringify({ x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), r: +me.yaw.toFixed(2) });
+  if (json === me.sent && now - me.lastSend < 1000) return;
+  me.lastSend = now; me.sent = json; net.me.set("p", json);
+}
+let audio = null;
+function sfx(freq, dur, type = "square") {
+  try {
+    audio = audio || new AudioContext();
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 0.55, t + dur);
+    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + dur);
+  } catch {}
+}
+
+// ── HUD ─────────────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const card = $("card");
+const touchUI = matchMedia("(pointer: coarse)").matches && !ATTRACT;
+document.body.classList.toggle("touch", touchUI);
+document.body.classList.toggle("attract", ATTRACT);
+$("keys").textContent = touchUI ? "Left stick to walk · drag to look · PLACE and BREAK · tap a color" : "WASD to walk · Space to jump · click to place · right-click to break · 1–8 or the wheel for colors · Esc to pause";
+for (let c = 1; c < COLORS.length; c++) {
+  const b = document.createElement("button"); b.innerHTML = `<i style="background:${COLORS[c]}"></i>`; b.dataset.c = c;
+  b.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); pickColor(c); });
+  $("bar").append(b);
+}
+function pickColor(c) { me.color = c; for (const b of $("bar").children) b.classList.toggle("on", +b.dataset.c === c); }
+function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3500); }
+function hud() {
+  const n = livePlayers().length;
+  $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the world" : ""}`;
+  $("who").textContent = memory.saved ? `You have a saved copy of this world (${memory.saved.rev} changes).` : net.offline ? "" : `${n} builder${n === 1 ? "" : "s"} here now.`;
+}
+let started = false;
+$("play").addEventListener("click", () => {
+  card.hidden = true;
+  if (!started) { started = true; const h = $("hint"); h.textContent = $("keys").textContent; h.classList.add("on"); setTimeout(() => h.classList.remove("on"), 7000); }
+  if (!touchUI && !input.noLock) requestLock();
+});
+
+// ── INPUT ───────────────────────────────────────────────────────────────────────────
+const cv = renderer.domElement;
+const input = { keys: new Set(), stick: { x: 0, y: 0, id: null }, look: { id: null, x: 0, y: 0 }, drag: null, jump: false, noLock: false, lockedOnce: false };
+const locked = () => document.pointerLockElement === cv;
+function turn(dx, dy, k) { me.yaw -= dx * k; me.pitch = Math.max(-1.5, Math.min(1.5, me.pitch - dy * k)); }
+function requestLock() { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(lockFailed); } catch { lockFailed(); } }
+function lockFailed() { if (!input.lockedOnce) input.noLock = true; else card.hidden = false; } // no pointer lock here (an iframe): drag to look
+document.addEventListener("pointerlockerror", lockFailed);
+document.addEventListener("pointerlockchange", () => { if (locked()) input.lockedOnce = true; else if (started && !input.noLock) card.hidden = false; });
+addEventListener("keydown", (e) => {
+  input.keys.add(e.code);
+  const n = Number(e.key); if (n >= 1 && n < COLORS.length) pickColor(n);
+  if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
+});
+addEventListener("keyup", (e) => input.keys.delete(e.code));
+addEventListener("blur", () => input.keys.clear());
+addEventListener("wheel", (e) => { if (card.hidden) pickColor(((me.color - 1 + (e.deltaY > 0 ? 1 : -1) + 8) % 8) + 1); }, { passive: true });
+document.addEventListener("mousemove", (e) => { if (locked()) turn(e.movementX, e.movementY, CONFIG.look); });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (!card.hidden) return;
+  if (e.pointerType === "mouse") {
+    if (locked()) act(e.button === 0);
+    else if (input.noLock) input.drag = { x: e.clientX, y: e.clientY, moved: 0, button: e.button };
+    else requestLock();
+  } else if (input.look.id === null) { input.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; try { cv.setPointerCapture(e.pointerId); } catch {} }
+});
+cv.addEventListener("pointermove", (e) => {
+  if (e.pointerId === input.look.id) { turn(e.clientX - input.look.x, e.clientY - input.look.y, CONFIG.touchLook); input.look.x = e.clientX; input.look.y = e.clientY; }
+  else if (input.drag && e.pointerType === "mouse") {
+    const dx = e.clientX - input.drag.x, dy = e.clientY - input.drag.y;
+    input.drag.moved += Math.abs(dx) + Math.abs(dy); input.drag.x = e.clientX; input.drag.y = e.clientY; turn(dx, dy, CONFIG.look * 1.5);
+  }
+});
+cv.addEventListener("pointerup", (e) => {
+  if (e.pointerId === input.look.id) input.look.id = null;
+  if (input.drag && e.pointerType === "mouse") { if (input.drag.moved < 6) act(input.drag.button === 0); input.drag = null; }
+});
+cv.addEventListener("pointercancel", (e) => { if (e.pointerId === input.look.id) input.look.id = null; input.drag = null; });
+const stick = $("stick"), knob = $("knob");
+function moveStick(e) {
+  const r = stick.getBoundingClientRect(), R = r.width / 2;
+  let x = (e.clientX - r.left - R) / R, y = (e.clientY - r.top - R) / R; const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+  input.stick.x = x; input.stick.y = y; knob.style.transform = `translate(${x * R * 0.6}px, ${y * R * 0.6}px)`;
+}
+stick.addEventListener("pointerdown", (e) => { e.preventDefault(); input.stick.id = e.pointerId; try { stick.setPointerCapture(e.pointerId); } catch {} moveStick(e); });
+stick.addEventListener("pointermove", (e) => { if (e.pointerId === input.stick.id) moveStick(e); });
+for (const ev of ["pointerup", "pointercancel"]) stick.addEventListener(ev, (e) => { if (e.pointerId === input.stick.id) { input.stick = { x: 0, y: 0, id: null }; knob.style.transform = ""; } });
+$("bPlace").addEventListener("pointerdown", (e) => { e.preventDefault(); act(true); });
+$("bBreak").addEventListener("pointerdown", (e) => { e.preventDefault(); act(false); });
+$("bJump").addEventListener("pointerdown", (e) => { e.preventDefault(); input.jump = true; });
+for (const ev of ["pointerup", "pointercancel", "pointerleave"]) $("bJump").addEventListener(ev, () => { input.jump = false; });
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let last = performance.now(), lastHb = 0, lastHud = 0;
+const orbit = { x: MID, z: MID };
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  if (isHost()) hostTick(dt, now); else world.adopted = false;
+  syncView(now);
+  if (ATTRACT) { // the preview: a slow orbit around wherever the bots are building
+    const bots = [...world.bots.values()], a = now / 1000 * 0.2;
+    if (bots.length) { orbit.x += (bots.reduce((s, b) => s + b.x, 0) / bots.length - orbit.x) * dt * 0.5; orbit.z += (bots.reduce((s, b) => s + b.z, 0) / bots.length - orbit.z) * dt * 0.5; }
+    camera.position.set(orbit.x + Math.cos(a) * 14, 8.5, orbit.z + Math.sin(a) * 14); camera.lookAt(orbit.x, 1.5, orbit.z);
+  } else {
+    moveMe(dt);
+    camera.position.set(me.x, me.y + 1.6, me.z); camera.rotation.set(me.pitch, me.yaw, 0);
+    camera.updateMatrixWorld();
+    me.aim = card.hidden ? aim() : null;
+    outline.visible = !!(me.aim && !me.aim.ground); ghost.visible = !!(me.aim && me.aim.place && !overlapsMe(me.aim.place));
+    if (outline.visible) outline.position.set(me.aim.cell[0] + 0.5, me.aim.cell[1] + 0.5, me.aim.cell[2] + 0.5);
+    if (ghost.visible) { ghost.position.set(me.aim.place[0] + 0.5, me.aim.place[1] + 0.5, me.aim.place[2] + 0.5); ghost.material.color.set(COLORS[me.color]); }
+    publish(now);
+  }
+  drawBuilders(dt);
+  animatePops(now); particlesTick(dt);
+  renderer.render(scene, camera);
+  if (now - lastHud > 250) { lastHud = now; hud(); }
+  requestAnimationFrame(frame);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("place", (m, from) => { if (isHost()) applyPlace(from, m, true); });
+  net.on("break", (m, from) => { if (isHost()) applyBreak(from, m, true); });
+  net.on("memory", (m) => { if (m && typeof m.text === "string") toast(m.text.slice(0, 80)); });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") player = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl });
+  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.s));
+  mySkin = SKINS.find((c) => !taken.has(c)) || SKINS[Math.floor(Math.random() * SKINS.length)];
+  net.me.set({ n: myName, s: mySkin, hb: Date.now() });
+  pickColor(BRICK);
+  startedAt = performance.now();
+  if (ATTRACT) { memory.ready = true; CONFIG.seats = 6; CONFIG.botBuildMs = 110; card.hidden = true; }
+  else loadMemory();
+  spawnMe();
+  setInterval(memoryTick, 1000);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
