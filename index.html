@@ -39,7 +39,7 @@
   #acts button:active { filter: brightness(1.4); }
   #card { position: fixed; inset: 0; display: grid; place-items: center; background: #0b142a88; }
   #card[hidden] { display: none; }
-  .card { width: min(360px, 88vw); padding: 22px; border-radius: 16px; background: #16213ef2; border: 1px solid #ffffff2a; text-align: center; }
+  .card { box-sizing: border-box; width: min(406px, calc(100vw - 32px)); padding: 22px; border-radius: 16px; background: #16213ef2; border: 1px solid #ffffff2a; text-align: center; }
   .card h1 { margin: 0 0 6px; font-size: 28px; }
   .card p { margin: 8px 0; font-size: 14px; opacity: .9; }
   .card .keys { font-size: 13px; opacity: .75; }
@@ -422,7 +422,9 @@ function hostTick(dt, now) {
 function spawnBot() {
   const used = new Set([...world.bots.values()].map((b) => b.name)), name = BOT_NAMES.find((n) => !used.has(n)) || "Bot";
   const id = "b" + Math.random().toString(36).slice(2, 6);
-  world.bots.set(id, { id, name, skin: SKINS[(world.bots.size + 4) % SKINS.length], x: MID + rnd(-6, 6), y: 0, z: MID + rnd(-6, 6), r: 0, plan: null, target: null, nextAt: 0, nextBlock: 0 });
+  const worn = new Set([...livePlayers().filter((p) => !(ATTRACT && p === net.sessionId)).map((p) => (p === net.sessionId ? mySkin : S.entities.players[p]?.s)), ...[...world.bots.values()].map((b) => b.skin)]);
+  const pref = SKINS[(world.bots.size + 4) % SKINS.length], skin = worn.has(pref) ? SKINS.find((c) => !worn.has(c)) || pref : pref; // a body color nobody wears, if any is left
+  world.bots.set(id, { id, name, skin, x: MID + rnd(-6, 6), y: 0, z: MID + rnd(-6, 6), r: 0, plan: null, target: null, nextAt: 0, nextBlock: 0 });
 }
 function botStep(b, dt, now) {
   if (!b.plan && !b.target) {
@@ -619,12 +621,12 @@ function showAvatar(id, color, name, p, building, dt, seen) {
   seen.add(id);
 }
 function drawBuilders(dt) {
-  const seen = new Set();
+  const seen = new Set(), live = new Set(livePlayers()); // a closed tab's entity lingers ~30s: draw only live players
   for (const [id, p] of Object.entries(S.entities.players || {})) {
-    if (id === net.sessionId) continue;
+    if (id === net.sessionId || !live.has(id)) continue;
     const pos = parse(p.p, null); if (pos) showAvatar(id, p.s || "#ccc", p.n || "Player", pos, false, dt, seen);
   }
-  const bots = isHost() ? [...world.bots.values()].map((b) => ({ i: b.id, n: b.name, s: b.skin, x: b.x, y: b.y, z: b.z, r: b.r, w: b.plan && !b.target })) : shared("bots", []);
+  const bots = isHost() && world.adopted ? [...world.bots.values()].map((b) => ({ i: b.id, n: b.name, s: b.skin, x: b.x, y: b.y, z: b.z, r: b.r, w: b.plan && !b.target })) : shared("bots", []);
   for (const b of bots) showAvatar(b.i, b.s, b.n, b, !!b.w, dt, seen);
   for (const [id, v] of views) if (!seen.has(id)) { scene.remove(v.g); views.delete(id); }
 }
@@ -633,6 +635,14 @@ function drawBuilders(dt) {
 const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() ||
   ["Brave", "Sunny", "Clever", "Happy", "Cozy", "Lucky"][Math.floor(Math.random() * 6)] + " " + ["Builder", "Mason", "Crafter", "Digger", "Maker"][Math.floor(Math.random() * 5)];
 let mySkin = SKINS[0]; // picked on join: the first body color nobody in the room has
+const botSkins = () => (isHost() && world.adopted ? [...world.bots.values()].map((b) => b.skin) : shared("bots", []).map((b) => b.s));
+/** Two people joined at once with one body color (or a bot wears it): the one with the higher sessionId picks a free one. */
+function fixSkin() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), bots = botSkins();
+  if (!others.some(([id, p]) => p.s === mySkin && id < net.sessionId) && !bots.includes(mySkin)) return;
+  const taken = new Set([...others.map(([, p]) => p.s), ...bots]), free = SKINS.find((c) => !taken.has(c));
+  if (free) { mySkin = free; net.me.set("s", free); }
+}
 const me = { x: MID, y: 0, z: MID + 10, vy: 0, yaw: 0, pitch: -0.3, onGround: false, color: BRICK, lastSend: 0, sent: "", aim: null };
 const solid = (x, y, z) => x < 0 || z < 0 || x >= CONFIG.size || z >= CONFIG.size || y < 0 || view.cells.has(key(x, y, z));
 /** Does my body (0.6 wide, 1.75 tall, feet at y) touch a solid cell? */
@@ -735,9 +745,10 @@ for (let c = 1; c < COLORS.length; c++) {
 }
 function pickColor(c) { me.color = c; for (const b of $("bar").children) b.classList.toggle("on", +b.dataset.c === c); }
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3500); }
+let dropped = false; // true while the connection is down: the HUD keeps showing "Reconnecting…"
 function hud() {
   const n = livePlayers().length;
-  $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the world" : ""}`;
+  $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the world" : ""}`;
   $("who").textContent = memory.saved ? `You have a saved copy of this world (${memory.saved.rev} changes).` : net.offline ? "" : `${n} builder${n === 1 ? "" : "s"} here now.`;
 }
 let started = false;
@@ -806,8 +817,8 @@ document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: fal
 let last = performance.now(), lastHb = 0, lastHud = 0;
 const orbit = { x: MID, z: MID };
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // never negative: the first frame can be stamped before `last`
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixSkin(); }
   if (isHost()) hostTick(dt, now); else world.adopted = false;
   syncView(now);
   if (ATTRACT) { // the preview: a slow orbit around wherever the bots are building
@@ -837,9 +848,10 @@ function frame(now) {
   net.on("place", (m, from) => { if (isHost()) applyPlace(from, m, true); });
   net.on("break", (m, from) => { if (isHost()) applyBreak(from, m, true); });
   net.on("memory", (m) => { if (m && typeof m.text === "string") toast(m.text.slice(0, 80)); });
-  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  net.onDisconnect(() => { dropped = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { dropped = false; });
   if (!net.offline && typeof MP !== "undefined") player = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl });
-  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.s));
+  const taken = new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.s), ...shared("bots", []).map((b) => b.s)]);
   mySkin = SKINS.find((c) => !taken.has(c)) || SKINS[Math.floor(Math.random() * SKINS.length)];
   net.me.set({ n: myName, s: mySkin, hb: Date.now() });
   pickColor(BRICK);
