@@ -453,6 +453,7 @@ function botStep(b, dt, now) {
 function findSite() {
   const kinds = ["tree", "tree", "house", "house", "tower", "garden"];
   const lo = ATTRACT ? MID - 13 : 4, hi = ATTRACT ? MID + 8 : CONFIG.size - 9; // the preview keeps them in camera
+  const people = ATTRACT ? [] : livePlayers().map((id) => (id === net.sessionId ? me : parse(S.entities.players[id]?.p, null))).filter(Boolean);
   for (let tries = 0; tries < 24; tries++) {
     const kind = kinds[Math.floor(rand() * kinds.length)], x = Math.floor(rnd(lo, hi)), z = Math.floor(rnd(lo, hi));
     const cells = BLUEPRINTS[kind](x, z, rand), count = new Map();
@@ -460,6 +461,7 @@ function findSite() {
     for (const [cx, , cz] of cells) count.set(regionOf(cx, cz), (count.get(regionOf(cx, cz)) || 0) + 1);
     for (const [ri, n] of count) if (world.regions[ri].size + n > CONFIG.regionCap) ok = false;
     for (let dx = -1; ok && dx <= 6; dx++) for (let dz = -1; ok && dz <= 6; dz++) if (hostHas(key(x + dx, 0, z + dz))) ok = false; // keep a gap
+    if (ok && people.some((p) => p.x > x - 2 && p.x < x + 7 && p.z > z - 2 && p.z < z + 7)) ok = false; // never build around someone
     if (ok) return { cells, i: 0, stand: { x: x - 0.8, z: z - 0.8 } };
   }
   return null;
@@ -751,7 +753,7 @@ let dropped = false; // true while the connection is down: the HUD keeps showing
 function hud() {
   const n = livePlayers().length;
   $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the world" : ""}`;
-  $("who").textContent = memory.saved ? `You have a saved copy of this world (${memory.saved.rev} changes).` : net.offline ? "" : `${n} builder${n === 1 ? "" : "s"} here now.`;
+  $("who").textContent = memory.saved && memory.saved.rev > 0 ? `You have a saved copy of this world (${memory.saved.rev} changes).` : net.offline ? "" : `${n} builder${n === 1 ? "" : "s"} here now.`;
 }
 let started = false;
 $("play").addEventListener("click", () => {
